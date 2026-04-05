@@ -1,0 +1,104 @@
+name: Terraform K8s CI/CD
+
+# PR & Push to main → validate (fmt, init, validate)
+# Manual             → integration test (meant for local runs with `act`)
+# Compatible with `act` for local testing: https://github.com/nektos/act
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      # Run fmt from terraform/ root so it checks both provisioners/ and modules/
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+        working-directory: terraform/provisioners
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: terraform/provisioners
+
+  integration-test:
+    name: Integration Test (Kind + Apply)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Install Kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.31.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: terraform/provisioners
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        working-directory: terraform/provisioners
+
+      - name: Verify Deployments
+        run: |
+          echo "=== Pods ==="
+          kubectl get pods -o wide
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc
+          echo ""
+          echo "=== Ingress ==="
+          kubectl get ingress
+
+      - name: Test App Endpoints
+        run: |
+          kubectl wait --for=condition=ready pod -l app=app1 --timeout=120s
+          kubectl wait --for=condition=ready pod -l app=app2 --timeout=120s
+          kubectl wait --for=condition=ready pod -l app=podinfo --timeout=120s
+
+          echo "--- Testing app1.local ---"
+          curl -s -H "Host: app1.local" http://localhost
+          echo ""
+          echo "--- Testing app2.local ---"
+          curl -s -H "Host: app2.local" http://localhost
+          echo ""
+          echo "--- Testing podinfo.local ---"
+          curl -s -H "Host: podinfo.local" http://localhost
+
+      - name: Terraform Destroy
+        if: always()
+        run: terraform destroy -auto-approve
+        working-directory: terraform/provisioners
