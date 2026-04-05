@@ -186,3 +186,4 @@ This project was developed with the assistance of Claude (Anthropic). The AI was
 
 All generated code was reviewed and validated for correctness and best practices.
 # podinfo
+# podinfo

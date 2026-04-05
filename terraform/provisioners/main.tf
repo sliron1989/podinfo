@@ -77,27 +77,14 @@ resource "helm_release" "ingress_nginx" {
   depends_on = [kind_cluster.default]
 }
 
-# Wait for the ingress controller to be fully ready before deploying apps.
-resource "null_resource" "wait_for_ingress" {
-  provisioner "local-exec" {
-    command = <<-EOT
-      echo "Waiting for NGINX Ingress Controller to be ready..."
-      kubectl wait --namespace ingress-nginx \
-        --for=condition=ready pod \
-        --selector=app.kubernetes.io/component=controller \
-        --timeout=120s
-    EOT
-  }
-
-  depends_on = [helm_release.ingress_nginx]
-}
-
 # =============================================================================
 # Application Deployments
 # =============================================================================
 # for_each iterates over the apps variable map, creating one complete
 # application stack per entry. This is the key to reusability:
 # adding a new app requires only a new entry in terraform.tfvars.
+# depends_on helm_release ensures ingress controller is ready first
+# (wait = true on the helm_release already waits for pods to be ready).
 
 module "apps" {
   source   = "../modules/app"
@@ -110,5 +97,5 @@ module "apps" {
   hostname       = each.value.hostname
   ingress_class  = "nginx"
 
-  depends_on = [null_resource.wait_for_ingress]
+  depends_on = [helm_release.ingress_nginx]
 }
