@@ -185,3 +185,4 @@ This project was developed with the assistance of Claude (Anthropic). The AI was
 - Structure the project with clear separation of concerns (modules, variables, outputs)
 
 All generated code was reviewed and validated for correctness and best practices.
+# podinfo
